@@ -119,6 +119,8 @@ async function main() {
     }
   }
 
+  // ensureIndexed attaches recursive fs.watch on Windows — must dispose or Node never exits (CI hang).
+  disposeVolumeIndex(root);
   await fs.rm(root, { recursive: true, force: true }).catch(() => undefined);
   await fs.rm(idxDir, { recursive: true, force: true }).catch(() => undefined);
   if (failed) process.exit(1);
