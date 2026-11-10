@@ -82,6 +82,7 @@ describe('searchFiles deep walk', () => {
     await fs.mkdir(b);
     await fs.writeFile(path.join(a, 'scope-hit.txt'), '1');
     await fs.writeFile(path.join(b, 'scope-hit.txt'), '1');
+    const aReal = await fs.realpath(a);
 
     const res = await searchFiles(a, 'scope-hit', {
       forceWalk: true,
@@ -90,7 +91,9 @@ describe('searchFiles deep walk', () => {
       maxScan: 1000,
     });
     expect(res.items.length).toBe(1);
-    expect(isPathUnder(res.items[0].path, a)).toBe(true);
+    const hit = res.items[0].path;
+    const ok = isPathUnder(hit, a) || isPathUnder(hit, aReal);
+    expect(ok, `hit=${hit} a=${a} aReal=${aReal}`).toBe(true);
   });
 
   it('CJK miss on ready-empty index falls back to deep walk', async () => {
@@ -185,17 +188,19 @@ describe('searchFiles deep walk', () => {
 
   it('INDEX CONTRACT: omitted file kind is restored to kind=file on index hits', async () => {
     // 复现：fsIndex.upsert 删掉 kind==='file'；IPC 层必须归一，否则 UI 文件夹/文件交错
-    const folderHit = path.join(root, 'w-folder');
+    // 避免查询串含 `-`（FTS5 unicode61 易把 hyphen 当分隔，Linux CI 曾空命中）
+    const folderHit = path.join(root, 'idxkindfolder');
     await fs.mkdir(folderHit, { recursive: true });
-    const fileHit = path.join(root, 'w-file.txt');
+    const fileHit = path.join(root, 'idxkindfile.txt');
     await fs.writeFile(fileHit, 'x');
 
     const vol = volumeRootOf(root);
     const idx = getIndex(vol);
     idx.ready = true;
     idx.building = false;
-    idx.upsert({ path: folderHit, name: 'w-folder', kind: 'folder', size: 0, modifiedAt: Date.now() });
-    idx.upsert({ path: fileHit, name: 'w-file.txt', kind: 'file', size: 1, modifiedAt: Date.now() });
+    idx.queryCache?.clear?.();
+    idx.upsert({ path: folderHit, name: 'idxkindfolder', kind: 'folder', size: 0, modifiedAt: Date.now() });
+    idx.upsert({ path: fileHit, name: 'idxkindfile.txt', kind: 'file', size: 1, modifiedAt: Date.now() });
     // 灌满到信任阈值，避免空/薄索引走 walk
     for (let i = 0; i < 520; i++) {
       idx.upsert({
@@ -212,17 +217,16 @@ describe('searchFiles deep walk', () => {
     expect(storedFile).toBeTruthy();
     expect(storedFile!.kind).toBeUndefined();
 
-    const res = await searchFiles(root, 'w-', {
+    const res = await searchFiles(root, 'idxkind', {
       indexDepth: 0,
       maxDepth: 8,
       maxScan: 5000,
       maxResults: 50,
     });
-    expect(res.source).toMatch(/index/);
-    const eqPath = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
-    const folderItem = res.items.find((it) => eqPath(it.path, folderHit));
-    const fileItem = res.items.find((it) => eqPath(it.path, fileHit));
-    expect(folderItem?.kind).toBe('folder');
+    expect(res.source, `items=${JSON.stringify(res.items)}`).toMatch(/index/);
+    const folderItem = res.items.find((it) => it.name === 'idxkindfolder');
+    const fileItem = res.items.find((it) => it.name === 'idxkindfile.txt');
+    expect(folderItem?.kind, `items=${res.items.map((i) => `${i.name}:${i.kind}`).join(',')}`).toBe('folder');
     expect(fileItem?.kind).toBe('file');
   });
 });

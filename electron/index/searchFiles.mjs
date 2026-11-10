@@ -45,17 +45,19 @@ export function volumeRootOf(absPath) {
 
 /** path 是否位于 root 之下（含 root 自身） */
 export function isPathUnder(absPath, root) {
-  const sep = process.platform === 'win32' ? '\\' : '/';
-  const norm = (p) => {
-    let x = String(p || '');
-    if (process.platform === 'win32') x = x.replace(/\//g, '\\');
-    x = x.replace(/[\\/]+$/, '');
-    return process.platform === 'win32' ? x.toLowerCase() : x;
-  };
-  const p = norm(absPath);
-  const r = norm(root);
+  const posix = process.platform !== 'win32';
+  const mod = posix ? path.posix : path.win32;
+  let p = mod.resolve(String(absPath || ''));
+  let r = mod.resolve(String(root || ''));
+  if (!posix) {
+    p = p.toLowerCase();
+    r = r.toLowerCase();
+  }
   if (!r) return true;
-  return p === r || p.startsWith(r + sep);
+  if (p === r) return true;
+  const rel = mod.relative(r, p);
+  // under: relative is non-empty, not escaping via .., and not absolute
+  return rel !== '' && !rel.startsWith('..') && !mod.isAbsolute(rel);
 }
 
 /** 任意词：多分词 AND；匹配文件名或完整路径（子串） */
