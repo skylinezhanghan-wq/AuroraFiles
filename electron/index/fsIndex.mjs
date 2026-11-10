@@ -40,6 +40,12 @@ export {
 };
 export { DEFAULT_MAX_SCAN };
 
+/** Map/索引键：Win 折叠大小写；POSIX 保留原样（大小写敏感） */
+export function pathKey(p) {
+  const s = String(p || '');
+  return process.platform === 'win32' ? s.toLowerCase() : s;
+}
+
 /** `.aidx.d` size above which space-debt coalesce rewrites base `.aidx` (bytes). */
 export function coalesceAidxDeltaBytes() {
   const raw = Number(process.env.AURORA_AIDX_COALESCE_BYTES);
@@ -170,8 +176,10 @@ class VolumeIndex {
    */
   _canonEntryPath(entry) {
     const raw = String(entry.path);
-    const key = raw.toLowerCase();
-    if (key !== entry.path) entry.path = key;
+    const key = pathKey(raw);
+    // Windows：键与 path 一并折叠。POSIX：只作 Map 键，禁止改写 entry.path
+    //（searchFiles walk 与 upsert 共享同一对象，改写会破坏 isPathUnder）
+    if (process.platform === 'win32' && key !== entry.path) entry.path = key;
     return key;
   }
 
@@ -469,8 +477,8 @@ class VolumeIndex {
   }
 
   linkChild(entryPath) {
-    const key = entryPath.toLowerCase();
-    const parent = path.dirname(entryPath).toLowerCase();
+    const key = pathKey(entryPath);
+    const parent = pathKey(path.dirname(entryPath));
     let set = this.children.get(parent);
     if (!set) {
       set = new Set();
@@ -480,8 +488,8 @@ class VolumeIndex {
   }
 
   unlinkChild(entryPath) {
-    const key = entryPath.toLowerCase();
-    const parent = path.dirname(entryPath).toLowerCase();
+    const key = pathKey(entryPath);
+    const parent = pathKey(path.dirname(entryPath));
     const set = this.children.get(parent);
     if (!set) return;
     set.delete(key);
@@ -508,7 +516,7 @@ class VolumeIndex {
     if (prev) {
       if (useByName) this.byName.remove(nameKey(prev.name, prev.path));
       if (!this._lean && !this._bulk) {
-        this.byPath.remove(prev.path.toLowerCase());
+        this.byPath.remove(pathKey(prev.path));
         this.segments.remove(prev.path);
         this.unlinkChild(prev.path);
       }
@@ -531,7 +539,7 @@ class VolumeIndex {
   }
 
   remove(absPath) {
-    const key = String(absPath).toLowerCase();
+    const key = pathKey(absPath);
     if (this._backend === 'native' && this._indexd) {
       void this._indexd.remove(key);
       this.fts.remove(absPath);
@@ -778,7 +786,7 @@ class VolumeIndex {
       || this.fts.size() > 0
     )) {
       for (const row of this.fts.search(needle, limit)) {
-        const value = this.meta.get(String(row.path).toLowerCase());
+        const value = this.meta.get(pathKey(row.path));
         if (value && !seen.has(value.path)) {
           seen.add(value.path);
           items.push(value);
@@ -836,7 +844,7 @@ class VolumeIndex {
     // 内存不足时再打 FTS
     if (items.length < limit && this.fts.ok) {
       for (const row of this.fts.search(needle, limit)) {
-        const value = this.meta.get(String(row.path).toLowerCase());
+        const value = this.meta.get(pathKey(row.path));
         if (value && !seen.has(value.path)) {
           seen.add(value.path);
           items.push(value);
@@ -1197,7 +1205,7 @@ async function walkDeltaLimited(idx, dir, depth, maxDepth, gen, maxScan) {
     }
     if (isReparseOrLink(st)) continue;
     const entry = entryFromStat(full, name, st);
-    let old = idx.meta.get(full.toLowerCase());
+    let old = idx.meta.get(pathKey(full));
     if (!old && idx._backend === 'native' && idx._indexd) {
       try {
         const got = await idx._indexd.get(full.toLowerCase());

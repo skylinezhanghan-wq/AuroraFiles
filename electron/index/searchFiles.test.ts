@@ -212,8 +212,9 @@ describe('searchFiles deep walk', () => {
       });
     }
 
-    // 索引内部：file 的 kind 被 upsert 删掉
-    const storedFile = idx.meta.get(fileHit.toLowerCase()) as { kind?: string } | undefined;
+    // 索引内部：file 的 kind 被 upsert 删掉（POSIX 键保留大小写）
+    const metaKey = process.platform === 'win32' ? fileHit.toLowerCase() : fileHit;
+    const storedFile = idx.meta.get(metaKey) as { kind?: string } | undefined;
     expect(storedFile).toBeTruthy();
     expect(storedFile!.kind).toBeUndefined();
 
