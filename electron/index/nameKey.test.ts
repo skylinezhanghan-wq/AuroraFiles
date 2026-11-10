@@ -47,7 +47,10 @@ describe('lean nameKey + slim entries', () => {
         expect(st.namePoolSize).toBeLessThanOrEqual(st.memEstimate.entries);
       }
       for (const it of q.items as { path: string; kind?: string }[]) {
-        expect(it.path).toBe(it.path.toLowerCase());
+        // Windows 索引键折叠大小写；POSIX 保留 mkdtemp 原大小写
+        if (process.platform === 'win32') {
+          expect(it.path).toBe(it.path.toLowerCase());
+        }
         if (it.kind) expect(it.kind).toBe('folder');
       }
     } finally {
